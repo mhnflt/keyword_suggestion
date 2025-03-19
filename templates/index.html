@@ -111,6 +111,9 @@
         let currentText = '';
         let currentNumLetters = 1;
         let searchInterval = null;
+        let lastProgress = 0;
+        let consecutiveErrors = 0;
+        const MAX_CONSECUTIVE_ERRORS = 3;
 
         function showLoading() {
             document.querySelector('.loading').style.display = 'flex';
@@ -127,11 +130,14 @@
                 return;
             }
 
-    const percentage = (progress / total) * 100;
-    document.getElementById('progressBar').style.width = `${percentage}%`;
-    document.getElementById('progressBar').textContent = `${Math.round(percentage)}%`;
-}
-
+            // Only update if progress is greater than last progress
+            if (progress >= lastProgress) {
+                lastProgress = progress;
+                const percentage = (progress / total) * 100;
+                document.getElementById('progressBar').style.width = `${percentage}%`;
+                document.getElementById('progressBar').textContent = `${Math.round(percentage)}%`;
+            }
+        }
 
         function createSuggestionCard(suggestion) {
             const card = document.createElement('div');
@@ -163,8 +169,17 @@
                 
                 if (data.error) {
                     console.error('Error:', data.error);
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                        clearInterval(searchInterval);
+                        hideLoading();
+                        alert('خطا در دریافت پیشنهادات. لطفاً دوباره تلاش کنید.');
+                    }
                     return;
                 }
+
+                // Reset error counter on successful response
+                consecutiveErrors = 0;
 
                 if (data.status === 'complete' || data.status === 'stopped') {
                     isSearchRunning = false;
@@ -186,7 +201,12 @@
                 updateProgress(data.progress, data.total);
             } catch (error) {
                 console.error('Error fetching suggestions:', error);
-                hideLoading();
+                consecutiveErrors++;
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                    clearInterval(searchInterval);
+                    hideLoading();
+                    alert('خطا در دریافت پیشنهادات. لطفاً دوباره تلاش کنید.');
+                }
             }
         }
 
@@ -195,6 +215,8 @@
             
             currentText = document.getElementById('searchText').value;
             currentNumLetters = parseInt(document.getElementById('numLetters').value);
+            lastProgress = 0;
+            consecutiveErrors = 0;
             
             try {
                 const response = await fetch('/start', {
@@ -212,14 +234,16 @@
                     document.getElementById('resumeBtn').disabled = true;
                     document.getElementById('downloadBtn').disabled = true;
                     document.getElementById('results-container').innerHTML = '';
-                    //showLoading();
+                    showLoading();
                     
-                    // Start fetching suggestions
-                    searchInterval = setInterval(fetchSuggestions, 1000);
+                    // Start fetching suggestions with a shorter interval
+                    if (searchInterval) clearInterval(searchInterval);
+                    searchInterval = setInterval(fetchSuggestions, 500);
                 }
             } catch (error) {
                 console.error('Error starting search:', error);
                 hideLoading();
+                alert('خطا در شروع جستجو. لطفاً دوباره تلاش کنید.');
             }
         });
 

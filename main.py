@@ -174,6 +174,8 @@ async def fetch_suggestions(text: str, num_letters: int):
                     logger.error(f"Error parsing response: {e}")
                     return JSONResponse({"error": "Failed to parse Google response"})
                 
+                # Store the results with the current query, even if no suggestions
+                suggestion_data = []
                 if suggestions:
                     # Process suggestions in parallel
                     async def process_suggestion(suggestion):
@@ -189,36 +191,28 @@ async def fetch_suggestions(text: str, num_letters: int):
                     # Process all suggestions concurrently
                     tasks = [process_suggestion(s) for s in suggestions]
                     suggestion_data = await asyncio.gather(*tasks)
-                    
-                    # Store the results with the current query
-                    results.append({
-                        "query": current_combo,
-                        "suggestions_data": suggestion_data
-                    })
-                    
-                    # Check if search is complete
-                    total = len(PERSIAN_LETTERS) if num_letters == 1 else len(PERSIAN_LETTERS) ** 2
-                    is_complete = len(results) >= total
-                    
-                    if is_complete:
-                        is_running = False
-                        logger.info("Search completed")
-                    
-                    return JSONResponse({
-                        "status": "complete" if is_complete else "running",
-                        "suggestions": suggestion_data,
-                        "is_complete": is_complete,
-                        "progress": len(results),
-                        "total": total
-                    })
-                else:
-                    return JSONResponse({
-                        "status": "running",
-                        "suggestions": [],
-                        "is_complete": False,
-                        "progress": len(results),
-                        "total": len(PERSIAN_LETTERS) if num_letters == 1 else len(PERSIAN_LETTERS) ** 2
-                    })
+                
+                # Always store the result and increment progress
+                results.append({
+                    "query": current_combo,
+                    "suggestions_data": suggestion_data
+                })
+                
+                # Check if search is complete
+                total = len(PERSIAN_LETTERS) if num_letters == 1 else len(PERSIAN_LETTERS) ** 2
+                is_complete = len(results) >= total
+                
+                if is_complete:
+                    is_running = False
+                    logger.info("Search completed")
+                
+                return JSONResponse({
+                    "status": "complete" if is_complete else "running",
+                    "suggestions": suggestion_data,
+                    "is_complete": is_complete,
+                    "progress": len(results),
+                    "total": total
+                })
     except Exception as e:
         logger.error(f"Error in fetch_suggestions: {e}")
         return JSONResponse({"error": str(e)})

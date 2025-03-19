@@ -1,0 +1,171 @@
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="btn-group">
+                    <button id="pauseBtn" class="btn btn-warning" disabled>مکث</button>
+                    <button id="resumeBtn" class="btn btn-success" disabled>ادامه</button>
+                    <button id="cancelBtn" class="btn btn-danger" disabled>لغو</button>
+                    <button id="downloadBtn" class="btn btn-info" disabled>دانلود CSV</button>
+                </div>
+                <div class="progress w-50">
+                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+    <script>
+        let isSearchRunning = false;
+        let currentText = '';
+        let currentNumLetters = 1;
+        let searchInterval = null;
+        let lastProgress = 0;
+        let consecutiveErrors = 0;
+        const MAX_CONSECUTIVE_ERRORS = 3;
+
+        function showLoading() {
+            document.querySelector('.loading').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.querySelector('.loading').style.display = 'none';
+        }
+
+        function resetState() {
+            isSearchRunning = false;
+            currentText = '';
+            currentNumLetters = 1;
+            lastProgress = 0;
+            consecutiveErrors = 0;
+            if (searchInterval) {
+                clearInterval(searchInterval);
+                searchInterval = null;
+            }
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '0%';
+            document.getElementById('results-container').innerHTML = '';
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('resumeBtn').disabled = true;
+            document.getElementById('cancelBtn').disabled = true;
+            document.getElementById('downloadBtn').disabled = true;
+            hideLoading();
+        }
+
+        function updateProgress(progress, total) {
+            if (total === 0) {
+                document.getElementById('progressBar').style.width = '0%';
+                document.getElementById('progressBar').textContent = '0%';
+                return;
+            }
+
+            // Only update if progress is greater than last progress
+            if (progress >= lastProgress) {
+                lastProgress = progress;
+                const percentage = (progress / total) * 100;
+                document.getElementById('progressBar').style.width = `${percentage}%`;
+                document.getElementById('progressBar').textContent = `${Math.round(percentage)}%`;
+            }
+        }
+
+        async function fetchSuggestions() {
+            try {
+                const response = await fetch(`/fetch_suggestions?text=${encodeURIComponent(currentText)}&num_letters=${currentNumLetters}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error('Error:', data.error);
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                        clearInterval(searchInterval);
+                        hideLoading();
+                        alert('خطا در دریافت پیشنهادات. لطفاً دوباره تلاش کنید.');
+                        resetState();
+                    }
+                    return;
+                }
+
+                // Reset error counter on successful response
+                consecutiveErrors = 0;
+
+                if (data.status === 'complete' || data.status === 'stopped') {
+                    isSearchRunning = false;
+                    document.getElementById('pauseBtn').disabled = true;
+                    document.getElementById('resumeBtn').disabled = true;
+                    document.getElementById('cancelBtn').disabled = false;
+                    document.getElementById('downloadBtn').disabled = false;
+                    clearInterval(searchInterval);
+                    hideLoading();
+                    
+                    // Ensure progress is at 100% when complete
+                    if (data.status === 'complete') {
+                        updateProgress(data.total, data.total);
+                    }
+                    return;
+                }
+
+                if (data.suggestions && data.suggestions.length > 0) {
+                    const resultsContainer = document.getElementById('results-container');
+                    data.suggestions.forEach(suggestion => {
+                        resultsContainer.appendChild(createSuggestionCard(suggestion));
+                    });
+                }
+
+                updateProgress(data.progress, data.total);
+            } catch (error) {
+                console.error('Error fetching suggestions:', error);
+                consecutiveErrors++;
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                    clearInterval(searchInterval);
+                    hideLoading();
+                    alert('خطا در دریافت پیشنهادات. لطفاً دوباره تلاش کنید.');
+                    resetState();
+                }
+            }
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            currentText = document.getElementById('searchText').value;
+            currentNumLetters = parseInt(document.getElementById('numLetters').value);
+            lastProgress = 0;
+            consecutiveErrors = 0;
+            
+            try {
+                const response = await fetch('/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `text=${encodeURIComponent(currentText)}&num_letters=${currentNumLetters}`
+                });
+                
+                const data = await response.json();
+                if (data.status === 'started') {
+                    isSearchRunning = true;
+                    document.getElementById('pauseBtn').disabled = false;
+                    document.getElementById('resumeBtn').disabled = true;
+                    document.getElementById('cancelBtn').disabled = false;
+                    document.getElementById('downloadBtn').disabled = true;
+                    document.getElementById('results-container').innerHTML = '';
+                    showLoading();
+                    
+                    // Start fetching suggestions with a shorter interval
+                    if (searchInterval) clearInterval(searchInterval);
+                    searchInterval = setInterval(fetchSuggestions, 500);
+                }
+            } catch (error) {
+                console.error('Error starting search:', error);
+                hideLoading();
+                alert('خطا در شروع جستجو. لطفاً دوباره تلاش کنید.');
+                resetState();
+            }
+        });
+
+        document.getElementById('cancelBtn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/cancel', { method: 'POST' });
+                const data = await response.json();
+                if (data.status === 'cancelled') {
+                    resetState();
+                }
+            } catch (error) {
+                console.error('Error cancelling search:', error);
+            }
+        });
+    </script> 

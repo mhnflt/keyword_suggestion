@@ -1,0 +1,3 @@
+"""
+Google Suggestions Checker Application
+""" 
