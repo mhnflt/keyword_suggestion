@@ -11,7 +11,7 @@ from typing import List
 from bs4 import BeautifulSoup
 from typing import List, Dict
 from collections import defaultdict
-
+from fastapi import HTTPException
 
 # Import the google_service router
 from app.services.google_service import router as google_router
@@ -273,48 +273,64 @@ async def get_keyword_volume_endpoint(keyword: str) -> str:
     except Exception as e:
         logger.error(f"Error getting keyword volume: {str(e)}")
         return "N/A"
-
+# Get these from Google Cloud Console
+GOOGLE_API_KEY = "AIzaSyDl3nNXEuW2uXijS2aAFA8A2atj13BpOCs"  # Replace with your API key
+SEARCH_ENGINE_ID = "c757ce35568aa4c8c"  # Replace with your Custom Search Engine ID
 
 @router.get("/search_results")
-async def get_search_results_endpoint(keyword: str) -> List[Dict]:
-    """Get search results from Google."""
+async def get_search_results_endpoint(keyword: str, location: str = None) -> List[Dict]:
+    """Get search results using Google Custom Search JSON API."""
     try:
         async with aiohttp.ClientSession() as session:
-            url = f"https://www.google.com/search?q={keyword}&hl=fa"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            # Base parameters
+            params = {
+                "key": GOOGLE_API_KEY,
+                "cx": SEARCH_ENGINE_ID,
+                "q": keyword,
+                "num": 5,  # Limit to 5 results
             }
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    soup = BeautifulSoup(html, "html.parser")
-                    search_results = []
-
-                    for div in soup.find_all("div", class_="g"):
-                        if len(search_results) >= 5:
-                            break
-
-                        title_elem = div.find("h3")
-                        link_elem = div.find("a")
-                        snippet_elem = div.find("div", class_="VwiC3b")
-
-                        if title_elem and link_elem:
-                            result = {
-                                "title": title_elem.get_text(),
-                                "link": link_elem.get("href", ""),
-                                "snippet": (
-                                    snippet_elem.get_text()
-                                    if snippet_elem
-                                    else "No description available"
-                                ),
-                            }
-                            search_results.append(result)
-
+            
+            # Add location if provided
+            if location:
+                params["q"] += f" {location}"  # Simple location addition to query
+                # For more precise location, you'd need to use 'cr' (country restrict) or 'gl' (geolocation)
+                # params["gl"] = "us"  # Example: restrict to US, adjust as needed
+            
+            url = "https://www.googleapis.com/customsearch/v1"
+            
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status != 200:
+                    logger.error(f"Google API returned status: {response.status}")
+                    raise HTTPException(status_code=500, detail="Search service unavailable")
+                
+                data = await response.json()
+                
+                # Check for errors or no results
+                if "items" not in data:
+                    logger.warning(f"No results found for keyword: {keyword}")
+                    return []
+                
+                # Format results
+                search_results = [
+                    {
+                        "title": item.get("title", "No title"),
+                        "link": item.get("link", ""),
+                        "snippet": item.get("snippet", "No description available")
+                    }
+                    for item in data["items"][:5]
+                ]
+                
                 return search_results
+                
+    except Exception as e:
+        logger.error(f"Error getting search results: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+
+
     except Exception as e:
         logger.error(f"Error getting search results: {str(e)}")
         return []
-
 
 @router.get("/suggestions")
 async def get_suggestions_endpoint(query: str) -> List[str]:
