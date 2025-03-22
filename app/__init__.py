@@ -1,3 +1,3 @@
 """
 Google Suggestions Checker Application
-""" 
+"""
